@@ -10,7 +10,7 @@
 
 -import(io_widget, 
 	[get_state/1, insert_str/2, set_prompt/2, set_state/2, 
-	 set_title/2, set_handler/2, update_state/3]).
+	 set_title/2, set_handler/2, update_state/3, set_group_list/2]).
 
 -export([start/0, test/0, connect/5]).
 
@@ -26,86 +26,88 @@ test() ->
     connect("localhost", 2223, "AsDT67aQ", "general", "sue").
 	   
 
-connect(Host, Port, HostPsw, Group, Nick) ->
-    spawn(fun() -> handler(Host, Port, HostPsw, Group, Nick) end).
+connect(Host, Port, HostPsw, Group, Nickname) ->
+    spawn(fun() -> start_client(Host, Port, HostPsw, Group, Nickname) end).
 				 
-handler(Host, Port, HostPsw, Group, Nick) ->
+start_client(Host, Port, HostPsw, Group, Nickname) ->
     process_flag(trap_exit, true),
+	Widget = create_widget(Nickname),
+    start_connection(Host, Port, HostPsw),    
+    main_loop(Widget, Group, Nickname).
+
+create_widget(Nickname) ->
     Widget = io_widget:start(self()),
-    set_title(Widget, Nick),
-    set_state(Widget, Nick),
-    set_prompt(Widget, [Nick, " > "]),
+    set_title(Widget, Nickname),
+    set_state(Widget, Nickname),
+    set_prompt(Widget, [Nickname, " > "]),
     set_handler(Widget, fun parse_command/1),
-    start_connector(Host, Port, HostPsw),    
-    disconnected(Widget, Group, Nick).
+	Widget.
 
-
-
-disconnected(Widget, Group, Nick) ->
-    receive
-	{connected, MM} ->
-	    insert_str(Widget, "connected to server\nsending data\n"),
-	    lib_chan_mm:send(MM, {login, Group, Nick}),
-	    wait_login_response(Widget, MM);
-	{Widget, destroyed} ->
-	    exit(died);
-	{status, S} ->
-	    insert_str(Widget, to_str(S)),
-	    disconnected(Widget, Group, Nick);
-	Other ->
-	    io:format("chat_client disconnected unexpected:~p~n",[Other]),
-	    disconnected(Widget, Group, Nick)
-    end.
-
-
-
-wait_login_response(Widget, MM) ->
-    receive
-	{chan, MM, ack} ->
-	    active(Widget, MM);
-	Other ->
-	    io:format("chat_client login unexpected:~p~n",[Other]),
-	    wait_login_response(Widget, MM)
-    end. 
-
-
-
-active(Widget, MM) ->
-     receive
-	 {Widget, Nick, Str} ->
-	     lib_chan_mm:send(MM, {relay, Nick, Str}),
-	     active(Widget, MM);
-	 {chan, MM, {msg, From, Pid, Str}} ->
-	     insert_str(Widget, [From,"@",pid_to_list(Pid)," ", Str, "\n"]),
-	     active(Widget, MM);
-	 {'EXIT',Widget,windowDestroyed} ->
-	     lib_chan_mm:close(MM);
-	 {close, MM} ->
-	     exit(serverDied);
-	 Other ->
-	     io:format("chat_client active unexpected:~p~n",[Other]),
-	     active(Widget, MM)
-     end. 
-
-
-
-start_connector(Host, Port, Pwd) ->
+start_connection(Host, Port, Pwd) ->
     S = self(),
-    spawn_link(fun() -> try_to_connect(S, Host, Port, Pwd) end).
-    
-try_to_connect(Parent, Host, Port, Pwd) ->
+    spawn_link(fun() -> connection_loop(S, Host, Port, Pwd) end).
+
+connection_loop(Parent, Host, Port, Pwd) ->
     %% Parent is the Pid of the process that spawned this process
     case lib_chan:connect(Host, Port, chat, Pwd, []) of
 	{error, _Why} ->
 	    Parent ! {status, {cannot, connect, Host, Port}},
 	    sleep(2000),
-	    try_to_connect(Parent, Host, Port, Pwd);
+	    connection_loop(Parent, Host, Port, Pwd);
 	{ok, MM} ->
 	    lib_chan_mm:controller(MM, Parent),
 	    Parent ! {connected, MM},
 	    exit(connectorFinished)
     end.
 
+main_loop(Widget, Group, Nickname) ->
+    receive
+	{connected, MM} ->
+	    login(MM, Widget, Group, Nickname);
+	{Widget, destroyed} ->
+	    exit(died);
+	{status, S} ->
+		io:format("Aqui com ~p: ~p~n", [Nickname, S]),
+	    insert_str(Widget, to_str(S)),
+	    main_loop(Widget, Group, Nickname);
+	Other ->
+	    io:format("chat_client disconnected unexpected:~p~n",[Other]),
+	    main_loop(Widget, Group, Nickname)
+    end.
+
+login(MM, Widget, Group, Nickname) ->
+	insert_str(Widget, "connected to server\nsending data\n"),
+    lib_chan_mm:send(MM, {login, Group, Nickname}),
+    wait_login_response(Widget, MM).
+
+wait_login_response(Widget, MM) ->
+    receive
+	{chan, MM, ack} ->
+	    active_loop(Widget, MM);
+	Other ->
+	    io:format("chat_client login unexpected:~p~n",[Other]),
+	    wait_login_response(Widget, MM)
+    end. 
+
+active_loop(Widget, MM) ->
+     receive
+	 {Widget, Nick, Str} ->
+	     lib_chan_mm:send(MM, {relay, Nick, Str}),
+	     active_loop(Widget, MM);
+	 {chan, MM, {msg, From, Pid, Str}} ->
+	     insert_str(Widget, [From,"@",pid_to_list(Pid)," ", Str, "\n"]),
+	     active_loop(Widget, MM);
+	 {chan, MM, {group_list, GroupList}} ->
+		set_group_list(Widget, GroupList),
+		active_loop(Widget, MM);
+	 {'EXIT',Widget,windowDestroyed} ->
+	     lib_chan_mm:close(MM);
+	 {close, MM} ->
+	     exit(serverDied);
+	 Other ->
+	     io:format("chat_client active unexpected:~p~n",[Other]),
+	     active_loop(Widget, MM)
+     end. 
 
 sleep(T) ->
     receive

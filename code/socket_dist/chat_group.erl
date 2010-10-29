@@ -9,7 +9,7 @@
 
 -module(chat_group).
 -import(lib_chan_mm, [send/2, controller/2]).
--import(lists, [foreach/2, reverse/2]).
+-import(lists, [foreach/2, map/2, reverse/2]).
 
 -export([start/2]).
 
@@ -30,22 +30,33 @@ delete(_, [], L)               -> {"????", L}.
 
 group_controller([]) ->
     exit(allGone);
-group_controller(L) ->
+group_controller(NicknamesList) ->
     receive
-	{chan, C, {relay, Nick, Str}} ->
-	    foreach(fun({Pid,_}) -> send(Pid, {msg,Nick,C,Str}) end, L),
-	    group_controller(L);
-	{login, C, Nick} ->
-	    controller(C, self()),
-	    send(C, ack),
-	    self() ! {chan, C, {relay, Nick, "I'm joining the group"}},
-	    group_controller([{C,Nick}|L]);
-	{chan_closed, C} ->
-	    {Nick, L1} = delete(C, L, []),
-	    self() ! {chan, C, {relay, Nick, "I'm leaving the group"}},
-	    group_controller(L1);
+	{chan, Channel, {relay, Nick, Str}} ->
+	    foreach(fun({Pid,_}) -> send(Pid, {msg,Nick,Channel,Str}) end, NicknamesList),
+	    group_controller(NicknamesList);
+	{login, Channel, Nick} ->
+	    controller(Channel, self()),
+	    send(Channel, ack),
+	    self() ! {chan, Channel, {relay, Nick, "I'm joining the group"}},
+		NewNicknamesList = [{Channel,Nick}|NicknamesList],
+		send_group_list_to_all(NewNicknamesList),
+	    group_controller(NewNicknamesList);
+	{chan_closed, Channel} ->
+	    {Nick, NewNicknamesList} = delete(Channel, NicknamesList, []),
+	    self() ! {chan, Channel, {relay, Nick, "I'm leaving the group"}},
+		send_group_list_to_all(NewNicknamesList),
+	    group_controller(NewNicknamesList);
 	Any ->
 	    io:format("group controller received Msg=~p~n", [Any]),
-	    group_controller(L)
+	    group_controller(NicknamesList)
     end.
 
+send_group_list_to_all(NicknamesList) ->
+	Nicknames = filter_nicknames(NicknamesList),
+	foreach(fun({Pid,_}) -> send(Pid, {group_list, Nicknames}) end, NicknamesList).
+
+filter_nicknames(NicknamesList) ->
+	map(fun select_nickname/1, NicknamesList).
+
+select_nickname({_Pid, Nick}) -> Nick.

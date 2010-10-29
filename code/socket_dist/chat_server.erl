@@ -26,37 +26,43 @@ start_server() ->
 			   io:format("Server terminated with:~p~n",[Val])
 		   end)).
 
-
-
-server_loop(L) ->
+server_loop(Groups) ->
     receive
-	{mm, Channel, {login, Group, Nick}} ->
-	    case lookup(Group, L) of
-		{ok, Pid} ->
-		    Pid ! {login, Channel, Nick},
-		    server_loop(L);
-		error ->
-		    Pid = spawn_link(fun() ->
-					     chat_group:start(Channel, Nick) 
-				     end),
-		    server_loop([{Group,Pid}|L])
-	    end;
+	{mm, Channel, {login, Group, Nickname}} ->
+	    login(Channel, Groups, Group, Nickname);
 	{mm_closed, _} ->
-	    server_loop(L); 
-	{'EXIT', Pid, allGone} ->
-	    L1 = remove_group(Pid, L),
-	    server_loop(L1);
+	    server_loop(Groups); 
+	{'EXIT', GroupPid, allGone} ->
+	    UpdatedGroups = remove_group(GroupPid, Groups),
+	    server_loop(UpdatedGroups);
 	Msg ->
-	    io:format("Server received Msg=~p~n",
-		      [Msg]),
-	    server_loop(L)
+	    io:format("Server received Msg=~p~n", [Msg]),
+	    server_loop(Groups)
     end.
 
+login(Channel, Groups, Group, Nickname) -> 
+	case lookup(Group, Groups) of
+		{ok, GroupPid} ->
+	    	log_nickname_to_group(Channel, GroupPid, Nickname),
+	    	server_loop(Groups);
+		group_not_found ->
+	    	NewGroupPid = create_new_group_and_add_nickname(Channel, Nickname),
+			GroupsIncludingNewGroup = add_group(Group, NewGroupPid, Groups),
+	    	server_loop(GroupsIncludingNewGroup)
+    end.
 
+log_nickname_to_group(Channel, GroupPid, Nickname) ->
+	GroupPid ! {login, Channel, Nickname}.
+
+create_new_group_and_add_nickname(Channel, Nickname) ->
+	spawn_link(fun() -> chat_group:start(Channel, Nickname)  end).
+
+add_group(NewGroup, NewGroupPid, Groups) ->
+	[{NewGroup, NewGroupPid} | Groups].
 
 lookup(G, [{G,Pid}|_]) -> {ok, Pid};
 lookup(G, [_|T])       -> lookup(G, T);
-lookup(_,[])           -> error.
+lookup(_,[])           -> group_not_found.
 
 remove_group(Pid, [{G,Pid}|T]) -> io:format("~p removed~n",[G]), T;
 remove_group(Pid, [H|T])       -> [H|remove_group(Pid, T)];
