@@ -91,8 +91,10 @@ loop(Win, Pid, Prompt, State, Parse) ->
 	    gs:config(entry, {delete,{0,last}}),
 	    gs:config(entry, {insert,{0,Prompt}}),
 	    try Parse(Text) of
-		Term ->
-		    Pid ! {self(), State, Term}
+		{message, Message} ->
+		    Pid ! {self(), State, Message};
+		{to, Destinatary, Message} ->
+			Pid ! {self(), {to, Destinatary, Message}}
 	    catch
 		_:_ ->
 		    self() ! {insert, "** bad input**\n** /h for help\n"}

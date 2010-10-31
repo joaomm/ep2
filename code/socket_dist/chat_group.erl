@@ -34,6 +34,17 @@ group_controller(Name, NicknamesList) ->
 	{chan, Channel, {relay, Nick, Str}} ->
 	    foreach(fun({Pid,_}) -> send(Pid, {msg,Nick,Channel,Str}) end, NicknamesList),
 	    group_controller(Name, NicknamesList);
+	
+	{chan, Channel, {to, FromNick, ToNick, Str}} ->
+		case find_pid_of(ToNick, NicknamesList) of
+			{ok, Pid} -> 
+				send(Pid, {direct_msg, FromNick, Channel, Str}),
+				send(Channel, {direct_msg, FromNick, Channel, Str});
+			not_found -> 
+				send(Channel, {direct_msg, FromNick, Channel, "Nick not found!"})
+		end,
+		group_controller(Name, NicknamesList);
+		
 	{login, Channel, Nick} ->
 	    controller(Channel, self()),
 	    send(Channel, ack),
@@ -50,6 +61,14 @@ group_controller(Name, NicknamesList) ->
 	    io:format("group controller received Msg=~p~n", [Any]),
 	    group_controller(Name, NicknamesList)
     end.
+
+find_pid_of(_Nick, []) -> not_found;
+find_pid_of(Nick, [{Pid, Nick} | _]) -> {ok, Pid};
+find_pid_of(Nick, [_ | T]) -> find_pid_of(Nick, T).
+
+find_nick_of(Pid, [{Pid, Nick} | _]) -> Nick;
+find_nick_of(Pid, [_ | T]) -> find_nick_of(Pid, T).
+
 
 send_group_list_to_all(Name, NicknamesList) ->
 	Nicknames = filter_nicknames(NicknamesList),

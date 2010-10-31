@@ -78,35 +78,45 @@ main_loop(Widget, Group, Nickname) ->
 login(MM, Widget, Group, Nickname) ->
 	insert_str(Widget, "connected to server\nsending data\n"),
     lib_chan_mm:send(MM, {login, Group, Nickname, node()}),
-    wait_login_response(Widget, MM).
+    wait_login_response(Widget, MM, Nickname).
 
-wait_login_response(Widget, MM) ->
+wait_login_response(Widget, MM, Nickname) ->
     receive
 	{chan, MM, ack} ->
-	    active_loop(Widget, MM);
+	    active_loop(Widget, MM, Nickname);
 	Other ->
 	    io:format("chat_client login unexpected:~p~n",[Other]),
-	    wait_login_response(Widget, MM)
+	    wait_login_response(Widget, MM, Nickname)
     end. 
 
-active_loop(Widget, MM) ->
+active_loop(Widget, MM, Nickname) ->
      receive
 	 {Widget, Nick, Str} ->
 	     lib_chan_mm:send(MM, {relay, Nick, Str}),
-	     active_loop(Widget, MM);
+	     active_loop(Widget, MM, Nickname);
+	
+	 {Widget, {to, Destinatary, Message}} ->
+		lib_chan_mm:send(MM, {to, Nickname, Destinatary, Message}),
+		active_loop(Widget, MM, Nickname);
+		
 	 {chan, MM, {msg, From, Pid, Str}} ->
 	     insert_str(Widget, [From,"@",pid_to_list(Pid)," ", Str, "\n"]),
-	     active_loop(Widget, MM);
+	     active_loop(Widget, MM, Nickname);
+	
+	 {chan, MM, {direct_msg, From, Pid, Str}} ->
+		 insert_str(Widget, ["DirectMsg ",From,"@",pid_to_list(Pid)," ", Str, "\n"]),
+		 active_loop(Widget, MM, Nickname);
+	
 	 {chan, MM, {group_list, GroupName, GroupList}} ->
 		set_group_list(Widget, GroupName, GroupList),
-		active_loop(Widget, MM);
+		active_loop(Widget, MM, Nickname);
 	 {'EXIT',Widget,windowDestroyed} ->
 	     lib_chan_mm:close(MM);
 	 {close, MM} ->
 	     exit(serverDied);
 	 Other ->
 	     io:format("chat_client active unexpected:~p~n",[Other]),
-	     active_loop(Widget, MM)
+	     active_loop(Widget, MM, Nickname)
      end. 
 
 sleep(T) ->
@@ -118,7 +128,29 @@ to_str(Term) ->
     io_lib:format("~p~n",[Term]).
 
 parse_command(Str) -> 
-	skip_to_gt(Str).
+	StrWithoutGt = skip_to_gt(Str),
+	parse_command_and_messages(StrWithoutGt).
+
+parse_command_and_messages(" " ++ T) ->
+	parse_command_and_messages(T);
+
+parse_command_and_messages("/" ++ T) ->
+	{Command, Rest} = parse_the_command(T),
+	{Destinatary, Message} = parse_destinatary_and_message(Rest),
+	{Command, Destinatary, Message};
+
+parse_command_and_messages(Message) ->
+	{message, Message}.
+
+parse_the_command("to " ++ Str) ->
+	{to, Str}.
+	
+parse_destinatary_and_message(Str) ->
+	separate_first_word_of(Str).
+
+separate_first_word_of(Str) ->
+	SpaceIndex = string:chr(Str, $\s),
+	{string:substr(Str, 1, SpaceIndex-1), string:substr(Str, SpaceIndex+1)}.
 
 skip_to_gt(">" ++ T) -> T;
 skip_to_gt([_|T])    -> skip_to_gt(T);
