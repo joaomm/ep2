@@ -15,7 +15,9 @@
 	 set_prompt/2,
 	 set_state/2,
 	 set_title/2, insert_str/2, update_state/3,
-	 set_group_list/3]).
+	 set_group_list/3,
+	 set_groups/2,
+	 destroy/1]).
 
 
 
@@ -31,6 +33,8 @@ set_state(Pid, State)   -> Pid ! {state, State}.
 insert_str(Pid, Str)    -> Pid ! {insert, Str}.
 update_state(Pid, N, X) -> Pid ! {updateState, N, X}. 
 set_group_list(Pid, GroupName, GroupList) -> Pid ! {group_list, GroupName, GroupList}.
+set_groups(Pid, Groups) -> Pid ! {groups, Groups}.
+destroy(Pid) -> Pid ! destroy.
 
 rpc(Pid, Q) ->    
     Pid ! {self(), Q},
@@ -82,6 +86,11 @@ loop(Win, Pid, Prompt, State, Parse) ->
 	{group_list, GroupName, GroupList} ->
 		update_group_list(GroupName, GroupList),
 		loop(Win, Pid, Prompt, State, Parse);
+	{groups, Groups} ->
+		insert_groups(Groups),
+		loop(Win, Pid, Prompt, State, Parse);
+	destroy ->
+		exit(windowDestroyed);
 	{gs,_,destroy,_,_} ->
 	    io:format("Destroyed~n",[]),
 	    exit(windowDestroyed);
@@ -94,7 +103,9 @@ loop(Win, Pid, Prompt, State, Parse) ->
 		{message, Message} ->
 		    Pid ! {self(), State, Message};
 		{to, Destinatary, Message} ->
-			Pid ! {self(), {to, Destinatary, Message}}
+			Pid ! {self(), {to, Destinatary, Message}};
+		Group ->
+			Pid ! {self(), {group, Group}}
 	    catch
 		_:_ ->
 		    self() ! {insert, "** bad input**\n** /h for help\n"}
@@ -155,3 +166,9 @@ insert_group_nicks(GroupList) ->
 insert_nick(Nick) ->
 	gs:config(group_listing, {add, "  " ++ Nick ++ "\n"}).
 		  
+insert_groups(Groups) ->
+	gs:config(editor, {insert, {'end', "Groups:\n"}}),
+	foreach(fun insert_group/1, Groups).
+
+insert_group(Group) ->
+	gs:config(editor, {insert, {'end', "  " ++ Group ++ "\n"}}).

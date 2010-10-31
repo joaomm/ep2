@@ -28,6 +28,9 @@ start_server() ->
 
 server_loop(Groups) ->
     receive
+	{mm, Channel, grouplist} ->
+		send(Channel, filter_groupnames(Groups)),
+		server_loop(Groups);
 	{mm, Channel, {login, Group, Nickname, Node}} ->
 	    login(Channel, Groups, Group, Nickname, Node);
 	{mm_closed, _} ->
@@ -68,3 +71,7 @@ remove_group(Pid, [{G,Pid}|T]) -> io:format("~p removed~n",[G]), T;
 remove_group(Pid, [H|T])       -> [H|remove_group(Pid, T)];
 remove_group(_, [])            -> [].
 
+filter_groupnames(Groups) ->
+	map(fun select_groupname/1, Groups).
+		
+select_groupname({Name, _Pid}) -> Name.

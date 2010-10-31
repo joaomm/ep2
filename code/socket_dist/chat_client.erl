@@ -10,38 +10,28 @@
 
 -import(io_widget, 
 	[get_state/1, insert_str/2, set_prompt/2, set_state/2, 
-	 set_title/2, set_handler/2, update_state/3, set_group_list/3]).
+	 set_title/2, set_handler/2, update_state/3, set_group_list/3, set_groups/2, destroy/1]).
 
--export([start/0, test/0, connect/5]).
+-export([start/0, start/1, test/0, connect/4]).
 
 
-start() -> 
-    connect("localhost", 2223, "AsDT67aQ", "general", "joe").
-
+start() -> connect("localhost", 2223, "AsDT67aQ", "joe").
+start(Nickname) -> connect("localhost", 2223, "AsDT67aQ", Nickname).
 
 test() ->
-    connect("localhost", 2223, "AsDT67aQ", "general", "joe"),
-    connect("localhost", 2223, "AsDT67aQ", "general", "jane"),
-    connect("localhost", 2223, "AsDT67aQ", "general", "jim"),
-    connect("localhost", 2223, "AsDT67aQ", "general", "sue").
+    connect("localhost", 2223, "AsDT67aQ", "joe"),
+    connect("localhost", 2223, "AsDT67aQ", "jane"),
+    connect("localhost", 2223, "AsDT67aQ", "jim"),
+    connect("localhost", 2223, "AsDT67aQ", "sue").
 	   
 
-connect(Host, Port, HostPsw, Group, Nickname) ->
-    spawn(fun() -> start_client(Host, Port, HostPsw, Group, Nickname) end).
+connect(Host, Port, HostPsw, Nickname) ->
+    spawn(fun() -> start_client(Host, Port, HostPsw, Nickname) end).
 				 
-start_client(Host, Port, HostPsw, Group, Nickname) ->
+start_client(Host, Port, HostPsw, Nickname) ->
     process_flag(trap_exit, true),
-	Widget = create_widget(Nickname),
-    start_connection(Host, Port, HostPsw),    
-    main_loop(Widget, Group, Nickname).
-
-create_widget(Nickname) ->
-    Widget = io_widget:start(self()),
-    set_title(Widget, Nickname),
-    set_state(Widget, Nickname),
-    set_prompt(Widget, [Nickname, " > "]),
-    set_handler(Widget, fun parse_command/1),
-	Widget.
+    start_connection(Host, Port, HostPsw),
+	main_loop(Nickname).
 
 start_connection(Host, Port, Pwd) ->
     S = self(),
@@ -60,25 +50,59 @@ connection_loop(Parent, Host, Port, Pwd) ->
 	    exit(connectorFinished)
     end.
 
-main_loop(Widget, Group, Nickname) ->
+main_loop(Nickname) ->
     receive
 	{connected, MM} ->
-	    login(MM, Widget, Group, Nickname);
-	{Widget, destroyed} ->
-	    exit(died);
-	{status, S} ->
-		io:format("Aqui com ~p: ~p~n", [Nickname, S]),
-	    insert_str(Widget, to_str(S)),
-	    main_loop(Widget, Group, Nickname);
+	    get_group_list(MM, Nickname);
+	{status, _S} ->
+	    main_loop(Nickname);
 	Other ->
 	    io:format("chat_client disconnected unexpected:~p~n",[Other]),
-	    main_loop(Widget, Group, Nickname)
+	    main_loop(Nickname)
     end.
 
-login(MM, Widget, Group, Nickname) ->
-	insert_str(Widget, "connected to server\nsending data\n"),
+get_group_list(MM, Nickname) ->
+	lib_chan_mm:send(MM, grouplist),
+	receive
+		{chan, MM, GroupList} ->
+			io:format("RECEBI a LISTA ~p ~n", [GroupList]),
+			start_group_list(MM, GroupList, Nickname)
+	end.
+
+start_group_list(MM, GroupList, Nickname) ->
+	GroupListWidget = create_group_list_widget(GroupList, Nickname),
+	group_list_loop(MM, Nickname, GroupListWidget).
+
+create_group_list_widget(GroupList, Nickname) ->
+	Widget = io_widget:start(self()),
+    set_title(Widget, "GroupList " ++ Nickname),
+    set_prompt(Widget, [" > "]),
+    set_handler(Widget, fun parse_group/1),
+	set_groups(Widget, GroupList),
+	Widget.
+
+group_list_loop(MM, Nickname, GroupListWidget) ->
+	receive
+	{_Widget, {group, Group}} ->
+		login(MM, Group, Nickname, GroupListWidget);
+	Other ->
+		io:format("chat_client login unexpected:~p~n",[Other]),
+		group_list_loop(MM, Nickname, GroupListWidget)
+	end.
+
+login(MM, Group, Nickname, GroupListWidget) ->
+	destroy(GroupListWidget),
+	ChatWidget = create_chat_widget(Nickname, Group),
     lib_chan_mm:send(MM, {login, Group, Nickname, node()}),
-    wait_login_response(Widget, MM, Nickname).
+	wait_login_response(ChatWidget, MM, Nickname).
+
+create_chat_widget(Nickname, Group) ->
+    Widget = io_widget:start(self()),
+	set_title(Widget, Nickname ++ "@" ++ Group),
+    set_state(Widget, Nickname),
+    set_prompt(Widget, [Nickname, " > "]),
+    set_handler(Widget, fun parse_command/1),
+	Widget.
 
 wait_login_response(Widget, MM, Nickname) ->
     receive
@@ -111,7 +135,8 @@ active_loop(Widget, MM, Nickname) ->
 		set_group_list(Widget, GroupName, GroupList),
 		active_loop(Widget, MM, Nickname);
 	 {'EXIT',Widget,windowDestroyed} ->
-	     lib_chan_mm:close(MM);
+	    lib_chan_mm:close(MM),
+		start(Nickname);
 	 {close, MM} ->
 	     exit(serverDied);
 	 Other ->
@@ -155,3 +180,10 @@ separate_first_word_of(Str) ->
 skip_to_gt(">" ++ T) -> T;
 skip_to_gt([_|T])    -> skip_to_gt(T);
 skip_to_gt([])       -> exit("no >").
+
+
+parse_group(Str) ->
+	Skipped = skip_to_gt(Str),
+	trim(Skipped).
+	
+trim(" " ++ Str) -> Str.
