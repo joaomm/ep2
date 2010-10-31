@@ -38,13 +38,12 @@ compile: ${MODS:%=%.beam}
 	@echo "make clean - clean up"
 
 chat_client: compile
-	erl -pa ../ -s chat_client test
-
+	erl -pa ../ -s chat_client test -sname bilbo
 test: compile
 	erl -s chat_tests start
 
 chat_server: compile
-	erl -pa ../ -s chat_server start
+	erl -pa ../ -s chat_server start -sname gandalf
 
 server: compile
 	erl -pa ../ -boot start_clean -pa '.' -s lib_chan_test start_server

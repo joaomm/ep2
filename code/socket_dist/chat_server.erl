@@ -28,8 +28,8 @@ start_server() ->
 
 server_loop(Groups) ->
     receive
-	{mm, Channel, {login, Group, Nickname}} ->
-	    login(Channel, Groups, Group, Nickname);
+	{mm, Channel, {login, Group, Nickname, Node}} ->
+	    login(Channel, Groups, Group, Nickname, Node);
 	{mm_closed, _} ->
 	    server_loop(Groups); 
 	{'EXIT', GroupPid, allGone} ->
@@ -40,22 +40,22 @@ server_loop(Groups) ->
 	    server_loop(Groups)
     end.
 
-login(Channel, Groups, Group, Nickname) -> 
-	case lookup(Group, Groups) of
+login(Channel, Groups, GroupName, Nickname, Node) -> 
+	case lookup(GroupName, Groups) of
 		{ok, GroupPid} ->
 	    	log_nickname_to_group(Channel, GroupPid, Nickname),
 	    	server_loop(Groups);
 		group_not_found ->
-	    	NewGroupPid = create_new_group_and_add_nickname(Channel, Nickname),
-			GroupsIncludingNewGroup = add_group(Group, NewGroupPid, Groups),
+	    	NewGroupPid = create_new_group_and_add_nickname(Channel, GroupName, Nickname, Node),
+			GroupsIncludingNewGroup = add_group(GroupName, NewGroupPid, Groups),
 	    	server_loop(GroupsIncludingNewGroup)
     end.
 
 log_nickname_to_group(Channel, GroupPid, Nickname) ->
 	GroupPid ! {login, Channel, Nickname}.
 
-create_new_group_and_add_nickname(Channel, Nickname) ->
-	spawn_link(fun() -> chat_group:start(Channel, Nickname)  end).
+create_new_group_and_add_nickname(Channel, GroupName, Nickname, Node) ->
+	spawn_link(Node, fun() -> chat_group:start(Channel, GroupName, Nickname)  end).
 
 add_group(NewGroup, NewGroupPid, Groups) ->
 	[{NewGroup, NewGroupPid} | Groups].

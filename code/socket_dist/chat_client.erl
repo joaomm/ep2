@@ -10,7 +10,7 @@
 
 -import(io_widget, 
 	[get_state/1, insert_str/2, set_prompt/2, set_state/2, 
-	 set_title/2, set_handler/2, update_state/3, set_group_list/2]).
+	 set_title/2, set_handler/2, update_state/3, set_group_list/3]).
 
 -export([start/0, test/0, connect/5]).
 
@@ -77,7 +77,7 @@ main_loop(Widget, Group, Nickname) ->
 
 login(MM, Widget, Group, Nickname) ->
 	insert_str(Widget, "connected to server\nsending data\n"),
-    lib_chan_mm:send(MM, {login, Group, Nickname}),
+    lib_chan_mm:send(MM, {login, Group, Nickname, node()}),
     wait_login_response(Widget, MM).
 
 wait_login_response(Widget, MM) ->
@@ -97,8 +97,8 @@ active_loop(Widget, MM) ->
 	 {chan, MM, {msg, From, Pid, Str}} ->
 	     insert_str(Widget, [From,"@",pid_to_list(Pid)," ", Str, "\n"]),
 	     active_loop(Widget, MM);
-	 {chan, MM, {group_list, GroupList}} ->
-		set_group_list(Widget, GroupList),
+	 {chan, MM, {group_list, GroupName, GroupList}} ->
+		set_group_list(Widget, GroupName, GroupList),
 		active_loop(Widget, MM);
 	 {'EXIT',Widget,windowDestroyed} ->
 	     lib_chan_mm:close(MM);
@@ -117,7 +117,8 @@ sleep(T) ->
 to_str(Term) ->
     io_lib:format("~p~n",[Term]).
 
-parse_command(Str) -> skip_to_gt(Str).
+parse_command(Str) -> 
+	skip_to_gt(Str).
 
 skip_to_gt(">" ++ T) -> T;
 skip_to_gt([_|T])    -> skip_to_gt(T);
