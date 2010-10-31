@@ -16,7 +16,8 @@
 
 
 start() -> connect("localhost", 2223, "AsDT67aQ", "joe").
-start(Nickname) -> connect("localhost", 2223, "AsDT67aQ", Nickname).
+start([Nickname]) -> connect("localhost", 2223, "AsDT67aQ", Nickname);
+start([]) -> start().
 
 test() ->
     connect("localhost", 2223, "AsDT67aQ", "joe"),
@@ -65,7 +66,6 @@ get_group_list(MM, Nickname) ->
 	lib_chan_mm:send(MM, grouplist),
 	receive
 		{chan, MM, GroupList} ->
-			io:format("RECEBI a LISTA ~p ~n", [GroupList]),
 			start_group_list(MM, GroupList, Nickname)
 	end.
 
@@ -136,7 +136,7 @@ active_loop(Widget, MM, Nickname) ->
 		active_loop(Widget, MM, Nickname);
 	 {'EXIT',Widget,windowDestroyed} ->
 	    lib_chan_mm:close(MM),
-		start(Nickname);
+		start([Nickname]);
 	 {close, MM} ->
 	     exit(serverDied);
 	 Other ->
